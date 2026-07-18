@@ -89,18 +89,21 @@ async function tonUsd() {
   }
 }
 
-// Цена токена в USD и изменение за 24ч (для строки под сделкой).
+// Цена токена, изменение за 24ч и объём — из DEX Screener (живые данные по пулу).
+// TonAPI для свежего токена отдаёт заглушку ($0.0000001, всегда 0.00%), поэтому не годится.
 async function tokenRate() {
-  if (!CFG.jetton) return null;
+  if (!CFG.pool) return null;
   try {
-    const r = await fetch(`${TONAPI}/rates?tokens=${encodeURIComponent(CFG.jetton)}&currencies=usd`, { headers: authHeaders() });
+    const r = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${CFG.pool}`);
     const j = await r.json();
-    const key = Object.keys(j?.rates || {})[0];
-    const row = key ? j.rates[key] : null;
-    if (!row) return null;
-    const usd = Number(row.prices?.USD) || 0;
-    const diffRaw = row.diff_24h?.USD ?? row.diff_24h?.usd ?? "";
-    return { usd, diff: String(diffRaw).trim() };
+    let p = j.pairs || j.pair;
+    if (Array.isArray(p)) p = p[0];
+    if (!p) return null;
+    const usd = Number(p.priceUsd) || 0;
+    const h24 = p.priceChange?.h24;
+    const diff = h24 === undefined || h24 === null ? "" : `${h24}%`;
+    const vol24 = Number(p.volume?.h24) || 0;
+    return { usd, diff, vol24 };
   } catch {
     return null;
   }
@@ -148,11 +151,13 @@ function buildMessage({ kind, ton, tokens, usd, user, txId, rate }) {
   const txLink = txId ? `<a href="https://tonviewer.com/transaction/${txId}">🔗 Транзакция</a>` : "";
   const buyLink = `<a href="${CFG.buyLink}">Купить ${CFG.symbol}</a>`;
 
-  // Строка цены токена + изменение за 24ч (если TonAPI уже отдаёт котировку).
+  // Строка цены токена + изменение за 24ч + объём (из DEX Screener).
   let priceLine = null;
+  let volLine = null;
   if (rate && rate.usd) {
     const d = fmtDiff(rate.diff);
     priceLine = `📊 Цена ${CFG.symbol}: ${fmtPrice(rate.usd)}${d ? `  (${d} за 24ч)` : ""}`;
+    if (rate.vol24) volLine = `📈 Объём 24ч: $${nf(rate.vol24, 0)}`;
   }
 
   return [
@@ -163,6 +168,7 @@ function buildMessage({ kind, ton, tokens, usd, user, txId, rate }) {
     `🪙 ${nf(tokens, 0)} ${CFG.symbol}`,
     emojiBar(ton, buy),
     priceLine,
+    volLine,
     `👤 ${userLink}`,
     [txLink, buyLink].filter(Boolean).join(" · "),
   ].filter((l) => l !== null).join("\n");
