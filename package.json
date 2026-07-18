@@ -1,0 +1,12 @@
+{
+  "name": "mgrmga-trade-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Buy/sell notifications for MGRMGA into a Telegram channel, with attitude.",
+  "scripts": {
+    "start": "node index.mjs",
+    "test-post": "node index.mjs --test"
+  },
+  "engines": { "node": ">=18" }
+}
