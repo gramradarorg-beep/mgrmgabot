@@ -74,11 +74,6 @@ function shortAddr(a) {
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
 
-function emojiBar(ton, buy) {
-  const n = Math.min(24, Math.max(1, Math.round(ton)));
-  return (buy ? "🟢" : "🔴").repeat(n);
-}
-
 async function tonUsd() {
   try {
     const r = await fetch(`${TONAPI}/rates?tokens=ton&currencies=usd`, { headers: authHeaders() });
@@ -166,7 +161,6 @@ function buildMessage({ kind, ton, tokens, usd, user, txId, rate }) {
     "",
     `💵 <b>${nf(ton, 2)} TON</b>${usdStr}`,
     `🪙 ${nf(tokens, 0)} ${CFG.symbol}`,
-    emojiBar(ton, buy),
     priceLine,
     volLine,
     `👤 ${userLink}`,
@@ -188,6 +182,10 @@ async function post(evt) {
 function parseSwaps(events) {
   const out = [];
   for (const ev of events) {
+    // Одно событие = одна сделка в канале. Мультихоп-роутинг на STON.fi v2 иногда даёт
+    // НЕСКОЛЬКО JettonSwap-действий в одном event (TON→pTON→MGRMGA), у всех один event_id —
+    // раньше это постилось дважды. Берём только ОДНО (самое крупное по TON) действие на событие.
+    let best = null;
     for (const act of ev.actions || []) {
       if (act.type !== "JettonSwap" || (act.status && act.status !== "ok")) continue;
       const s = act.JettonSwap;
@@ -210,7 +208,7 @@ function parseSwaps(events) {
         continue; // свап не про наш токен
       }
 
-      out.push({
+      const cand = {
         id: ev.event_id,
         ts: ev.timestamp || 0,
         kind,
@@ -218,8 +216,10 @@ function parseSwaps(events) {
         tokens,
         user: s.user_wallet?.address || "",
         txId: ev.event_id,
-      });
+      };
+      if (!best || cand.ton > best.ton) best = cand; // крупнейшее действие представляет событие
     }
+    if (best) out.push(best);
   }
   return out;
 }
@@ -312,9 +312,18 @@ async function main() {
   }
 
   console.log(`Бот запущен. Пул: ${CFG.pool}. Опрос каждые ${CFG.pollMs / 1000}с. Канал: ${CFG.channel}.`);
-  const run = () => {
-    refreshConfig(); // подхватываем правки .env на лету (порог, пул, ссылки)
-    return tick(state, ctx).catch((e) => console.error("Ошибка опроса:", e.message));
+  let running = false; // если тик затянулся (медленная сеть) — не запускаем второй параллельно, иначе дубли
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      refreshConfig(); // подхватываем правки .env на лету (порог, пул, ссылки)
+      await tick(state, ctx);
+    } catch (e) {
+      console.error("Ошибка опроса:", e.message);
+    } finally {
+      running = false;
+    }
   };
   await run();
   setInterval(run, CFG.pollMs);
