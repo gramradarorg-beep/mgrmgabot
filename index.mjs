@@ -41,7 +41,12 @@ function refreshConfig() {
   CFG.pool = get("POOL_ADDRESS");
   CFG.jetton = get("JETTON_MASTER");
   CFG.symbol = get("TOKEN_SYMBOL", "MGRMGA").toUpperCase();
-  CFG.buyLink = get("BUY_LINK", "https://mgrmga.org");
+  // Кнопка «Купить». Если BUY_LINK не задан — ведём СРАЗУ на свап STON.fi по адресу токена
+  // (ft=GRAM — платим нативным GRAM/TON), а не на сайт: так у покупателя на один клик меньше.
+  const buyEnv = get("BUY_LINK", "");
+  CFG.buyLink = buyEnv || (CFG.jetton
+    ? `https://app.ston.fi/swap?chartVisible=false&ft=GRAM&tt=${CFG.jetton}`
+    : "https://mgrmga.org");
   CFG.minTon = Number(get("MIN_TON", "0"));
   CFG.pollMs = Math.max(5000, Number(get("POLL_INTERVAL_MS", "15000")));
   CFG.seedPost = get("SEED_POST") === "1";
